@@ -24,6 +24,7 @@ RATE = None
 NUM_REQ_THIS_PERIOD = None
 # GH rate is 5000 / hour, add a little leeway
 RATE_LIMIT = 4998
+PROC_CRASH_WAIT_SEC = 10
 
 
 def set_progress(downloader_id, repo_id, sha):
@@ -82,8 +83,12 @@ def allow_step():
 
 
 def downloader_main(downloader_id):
-    for i in range(100):
-        run_step(downloader_id)
+    while True:
+        try:
+            run_step(downloader_id)
+        except Exception as e:
+            logging.exception("Got exception in downloader {}".format(downloader_id))
+            time.sleep(PROC_CRASH_WAIT_SEC)
 
 
 def get_and_insert_commits(repo_id, sha=None) -> Optional[str]:
