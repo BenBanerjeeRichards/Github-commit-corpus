@@ -2,10 +2,13 @@ import sqlite3
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "github.sqlite")
+DB_PATH = None
 
 
 def get_db():
+    if not DB_PATH:
+        raise Exception("No DB path provided")
+
     conn = sqlite3.connect(DB_PATH)
     return conn, conn.cursor()
 

@@ -6,6 +6,7 @@ from multiprocessing import Process, Lock
 from sys import stdout
 import time
 import datetime
+import sys
 
 log_format = logging.Formatter('%(asctime)s [%(process)d] %(message)s')
 logging.basicConfig(format='%(asctime)s [%(process)d] %(message)s',
@@ -196,6 +197,12 @@ def sleep_until(timestamp: int):
 
 
 def main():
+    if len(sys.argv) != 2:
+        print("syntax: main.py [DB PATH]")
+        return
+    db_path = sys.argv[1]
+    db.DB_PATH = db_path
+
     p1 = Process(target=downloader_main, args=(1,))
     p2 = Process(target=downloader_main, args=(2,))
 
