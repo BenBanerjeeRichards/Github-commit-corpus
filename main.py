@@ -173,10 +173,14 @@ def sleep_until_rate_reset():
 
 def sleep_until(timestamp: int):
     now = time.time()
+    logging.info("Sleeping until {} now = {} diff = {}".format(timestamp, now, timestamp - now))
     while timestamp - now > 0:
         if timestamp - now < 10:
+            logging.info("Sleeping for {} timestamp = {} now = {}".format(timestamp - now, timestamp, now))
             time.sleep((timestamp - now) + 1)
         else:
+            logging.info(
+                "Sleeping for 8 seconds, now = {}, timestamp = {}, diff = {}".format(now, datetime, timestamp - now))
             time.sleep(8)
 
         now = time.time()

@@ -4,7 +4,6 @@ import time
 import datetime
 import urllib.parse
 import math
-from requests.exceptions import HTTPError
 
 TOKEN = open("creds.txt", "rt").read().replace("\n", "")
 MAX_ATTEMPTS = 5
