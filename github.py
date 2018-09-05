@@ -6,7 +6,7 @@ import urllib.parse
 import math
 from requests.exceptions import HTTPError
 
-TOKEN = open("creds.txt").read()
+TOKEN = open("creds.txt", "rt").read().replace("\n", "")
 MAX_ATTEMPTS = 5
 BASE_SLEEP = 2
 SLEEP_POW = 2
