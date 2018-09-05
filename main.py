@@ -6,6 +6,7 @@ from multiprocessing import Process, Lock
 from sys import stdout
 import time
 import datetime
+from requests.exceptions import HTTPError
 
 log_format = logging.Formatter('%(asctime)s [%(process)d] %(message)s')
 logging.basicConfig(format='%(asctime)s [%(process)d] %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
@@ -25,6 +26,7 @@ NUM_REQ_THIS_PERIOD = None
 # GH rate is 5000 / hour, add a little leeway
 RATE_LIMIT = 4998
 PROC_CRASH_WAIT_SEC = 10
+MAX_GET_REPO_ID = 50
 
 
 def set_progress(downloader_id, repo_id, sha):
@@ -41,12 +43,15 @@ def run_step(downloader_id):
     if repo_id is None and sha is None:
         # This one takes 2 requests
         if not allow_request(2):
+            logging.info("No rate limit remaining, sleeping . Rate = {}".format(RATE.__str__()))
             sleep_until_rate_reset()
             return
         next_repo_id = next_repo()
-        set_progress(downloader_id, next_repo_id, "master")
+        if next_repo_id:
+            set_progress(downloader_id, next_repo_id, "master")
     else:
         if not allow_request():
+            logging.info("No rate limit remaining, sleeping . Rate = {}".format(RATE.__str__()))
             sleep_until_rate_reset()
             return
         logging.info("Downloading commits since {}".format(sha))
@@ -61,25 +66,39 @@ def run_step(downloader_id):
 def next_repo():
     try:
         NEXT_REPO_LOCK.acquire()
-        repo_id_from_queue = db.get_next_repo_from_queue()
-        if not repo_id_from_queue:
-            largest_id = db.largest_repo_id()
-            logging.info("No repo in progress or in queue, getting listing from id = {}".format(largest_id))
-            repos = github.repos(largest_id)
-            db.add_repos_to_queue(repos)
-            repo_id_from_queue = db.get_next_repo_from_queue()
-
-        logging.info("Got repo id {}, removing from queue and processing".format(repo_id_from_queue))
-        repo = github.repo(repo_id_from_queue)
-        db.insert_repo(repo)
-        db.remove_repo_from_queue(repo_id_from_queue)
-        return repo["id"]
+        return _do_next_repo()
     finally:
         NEXT_REPO_LOCK.release()
 
 
-def allow_step():
-    pass
+def _do_next_repo(attempts=0) -> int:
+    if attempts > MAX_GET_REPO_ID:
+        raise GithubError("Exceeded max num of attempts to find repo without error, stopping")
+
+    repo_id_from_queue = db.get_next_repo_from_queue()
+    if not repo_id_from_queue:
+        largest_id = db.largest_repo_id()
+        logging.info("No repo in progress or in queue, getting listing from id = {}".format(largest_id))
+        repos = github.repos(largest_id)
+        db.add_repos_to_queue(repos.data)
+        repo_id_from_queue = db.get_next_repo_from_queue()
+
+    logging.info("Got repo id {}, removing from queue and processing".format(repo_id_from_queue))
+
+    repo = github.repo(repo_id_from_queue)
+    if repo.rate_limit_hit():
+        sleep_until_rate_reset()
+        return
+    if repo.error:
+        logging.exception("Failed to get repo due to API error")
+        logging.info("Repo {} has access blocked, skipping".format(repo_id_from_queue))
+        db.remove_repo_from_queue(repo_id_from_queue)
+        db.add_failed_repo(repo_id_from_queue, repo.request_log_id)
+        return _do_next_repo(attempts + 1)
+
+    db.insert_repo(repo.data)
+    db.remove_repo_from_queue(repo_id_from_queue)
+    return repo.data["id"]
 
 
 def downloader_main(downloader_id):
@@ -92,7 +111,21 @@ def downloader_main(downloader_id):
 
 
 def get_and_insert_commits(repo_id, sha=None) -> Optional[str]:
-    commits = github.commits(repo_id, sha)
+    commits_res = github.commits(repo_id, sha)
+    if commits_res.error:
+        if commits_res.response.status_code == 409 and commits_res.data.get("message") == "Git Repository is empty.":
+            return None
+        elif commits_res.rate_limit_hit():
+            sleep_until_rate_reset()
+            return None
+        elif commits_res.response.status_code == 404 and sha == "master":
+            # No master branch, just use whatever they have
+            logging.info("Got 404 with master on repo {}, trying on whatever the branch happens to be".format(repo_id))
+            return get_and_insert_commits(repo_id)
+        else:
+            db.add_failed_commits(repo_id, sha, commits_res.request_log_id)
+    commits = commits_res.data
+
     if len(commits) == 0:
         return None
 
@@ -115,7 +148,7 @@ def allow_request(num_reqs=1):
         CHECK_RATE_LOCK.acquire()
 
         if not RATE or RATE["reset"] >= time.time():
-            RATE = github.rate_limit()
+            RATE = github.rate_limit().data["resources"]["core"]
 
         if not NUM_REQ_THIS_PERIOD:
             resets_at = datetime.datetime.fromtimestamp(RATE["reset"])
@@ -134,7 +167,7 @@ def allow_request(num_reqs=1):
 
 
 def sleep_until_rate_reset():
-    rate = github.rate_limit()
+    rate = github.rate_limit().data["resources"]["core"]
     sleep_until(rate["reset"])
 
 
@@ -163,3 +196,10 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+class GithubError(Exception):
+
+    def __init__(self, message):
+        self.message = message
+        pass

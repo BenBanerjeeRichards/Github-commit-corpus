@@ -126,11 +126,12 @@ def largest_repo_id() -> int:
         return res[0]
 
 
-def insert_request_log(url: str, date: str, time: int, status: int):
+def insert_request_log(url: str, date: str, time: int, status: int, error_body:str=None) -> int:
     conn, cursor = get_db()
     with conn:
-        data = (url, date, time, status)
-        cursor.execute("insert into  request_log values (NULL, ?, ?, ?, ?)", data)
+        data = (url, date, time, status, error_body)
+        cursor.execute("insert into  request_log values (NULL, ?, ?, ?, ?, ?)", data)
+        return cursor.lastrowid
 
 
 def get_progress(downloader_id) -> (str, str):
@@ -164,3 +165,16 @@ def num_requests_between(start: str, end: str) -> int:
     with conn:
         cursor.execute(query)
         return cursor.fetchone()[0]
+
+
+def add_failed_repo(repo_id, request_log_id):
+    conn, cursor = get_db()
+    with conn:
+        cursor.execute("insert into failed_get_repo values (NULL, ?, ?)", (repo_id, request_log_id))
+
+
+def add_failed_commits(repo_id, sha, request_log_id):
+    conn, cursor = get_db()
+    with conn:
+        cursor.execute("insert into failed_get_commits values (NULL, ?, ?, ?)", (repo_id, sha, request_log_id))
+

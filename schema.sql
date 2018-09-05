@@ -53,7 +53,8 @@ create table if not exists request_log (
   url text,
   request_started datetime,
   time_ms int,
-  status_code int
+  status_code int,
+  error_body text
 );
 
 
@@ -61,4 +62,20 @@ create table progress (
   downloader_id integer primary key,
   repo_id text,
   sha text
+);
+
+create table if not exists failed_get_repo(
+  id integer primary key autoincrement,
+  repo_id integer,
+  request_log_id integer,
+  foreign key (request_log_id) references request_log (id)
+);
+
+create table if not exists failed_get_commits (
+  id integer primary key autoincrement,
+  repo_id integer,
+  sha text,
+  request_log_id integer,
+  foreign key (repo_id) references repo(id),
+  foreign key (request_log_id) references request_log(id)
 );
