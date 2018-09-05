@@ -6,10 +6,9 @@ from multiprocessing import Process, Lock
 from sys import stdout
 import time
 import datetime
-from requests.exceptions import HTTPError
 
 log_format = logging.Formatter('%(asctime)s [%(process)d] %(message)s')
-logging.basicConfig(format='%(asctime)s [%(process)d] %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
+logging.basicConfig(format='%(asctime)s [%(process)d] %(message)s',
                     filename="output.log")
 sh = logging.StreamHandler(stdout)
 sh.setFormatter(log_format)
@@ -140,14 +139,14 @@ def get_and_insert_commits(repo_id, sha=None) -> Optional[str]:
     return commits[-1].get("sha")
 
 
-def allow_request(num_reqs=1):
+def allow_request(num_reqs=1, check = False):
     global RATE
     global NUM_REQ_THIS_PERIOD
 
     try:
         CHECK_RATE_LOCK.acquire()
 
-        if not RATE or RATE["reset"] >= time.time():
+        if not RATE or RATE["reset"] <= time.time():
             RATE = github.rate_limit().data["resources"]["core"]
 
         if not NUM_REQ_THIS_PERIOD:
@@ -158,7 +157,9 @@ def allow_request(num_reqs=1):
             NUM_REQ_THIS_PERIOD = db.num_requests_between(period_start.__str__(), resets_at.__str__())
 
         if NUM_REQ_THIS_PERIOD + num_reqs > RATE_LIMIT:
-            return False
+            if not check:
+                RATE = github.rate_limit().data["resources"]["core"]
+                return allow_request(num_reqs, True)
         else:
             NUM_REQ_THIS_PERIOD += num_reqs
             return True
@@ -168,21 +169,29 @@ def allow_request(num_reqs=1):
 
 def sleep_until_rate_reset():
     rate = github.rate_limit().data["resources"]["core"]
-    sleep_until(rate["reset"])
+    if rate["remaining"] < 10:
+        logging.info("Sleeping until next rate limit at {}, rate = {}".format(rate["reset"], rate))
+        sleep_until(rate["reset"])
+    else:
+        logging.error("Tried to sleep for rate limit but remaining is too high: rate = {}".format(rate))
 
 
 def sleep_until(timestamp: int):
     now = time.time()
     logging.info("Sleeping until {} now = {} diff = {}".format(timestamp, now, timestamp - now))
-    while timestamp - now > 0:
-        if timestamp - now < 10:
-            logging.info("Sleeping for {} timestamp = {} now = {}".format(timestamp - now, timestamp, now))
-            time.sleep((timestamp - now) + 1)
-        else:
-            logging.info(
-                "Sleeping for 8 seconds, now = {}, timestamp = {}, diff = {}".format(now, datetime, timestamp - now))
-            time.sleep(8)
+    iterations = 0
 
+    while timestamp - now > 0:
+        iterations += 1
+        if timestamp - now < 10:
+            sleep_for = (timestamp - now) + 1
+        else:
+            sleep_for = 8
+
+        logging.info(
+            "Sleeping for {} seconds, now = {}, timestamp = {}, diff = {}".format(sleep_for, now, timestamp, timestamp - now))
+
+        time.sleep(sleep_for)
         now = time.time()
 
 
