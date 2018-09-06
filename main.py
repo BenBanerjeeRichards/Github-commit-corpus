@@ -140,32 +140,36 @@ def get_and_insert_commits(repo_id, sha=None) -> Optional[str]:
     return commits[-1].get("sha")
 
 
-def allow_request(num_reqs=1, check = False):
-    global RATE
-    global NUM_REQ_THIS_PERIOD
+def allow_request(num_reqs=1):
 
     try:
         CHECK_RATE_LOCK.acquire()
-
-        if not RATE or RATE["reset"] <= time.time():
-            RATE = github.rate_limit().data["resources"]["core"]
-
-        if not NUM_REQ_THIS_PERIOD:
-            resets_at = datetime.datetime.fromtimestamp(RATE["reset"])
-            period_start = datetime.datetime(resets_at.year, resets_at.month, resets_at.day, resets_at.hour - 1,
-                                             resets_at.minute, resets_at.second)
-
-            NUM_REQ_THIS_PERIOD = db.num_requests_between(period_start.__str__(), resets_at.__str__())
-
-        if NUM_REQ_THIS_PERIOD + num_reqs > RATE_LIMIT:
-            if not check:
-                RATE = github.rate_limit().data["resources"]["core"]
-                return allow_request(num_reqs, True)
-        else:
-            NUM_REQ_THIS_PERIOD += num_reqs
-            return True
+        return _do_allow_request(num_reqs)
     finally:
         CHECK_RATE_LOCK.release()
+
+
+def _do_allow_request(num_reqs, check=False):
+    global RATE
+    global NUM_REQ_THIS_PERIOD
+
+    if not RATE or RATE["reset"] <= time.time():
+        RATE = github.rate_limit().data["resources"]["core"]
+
+    if not NUM_REQ_THIS_PERIOD:
+        resets_at = datetime.datetime.fromtimestamp(RATE["reset"])
+        period_start = datetime.datetime(resets_at.year, resets_at.month, resets_at.day, resets_at.hour - 1,
+                                         resets_at.minute, resets_at.second)
+
+        NUM_REQ_THIS_PERIOD = db.num_requests_between(period_start.__str__(), resets_at.__str__())
+
+    if NUM_REQ_THIS_PERIOD + num_reqs > RATE_LIMIT:
+        if not check:
+            RATE = github.rate_limit().data["resources"]["core"]
+            return _do_allow_request(num_reqs, True)
+    else:
+        NUM_REQ_THIS_PERIOD += num_reqs
+        return True
 
 
 def sleep_until_rate_reset():
