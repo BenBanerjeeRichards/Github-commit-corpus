@@ -193,7 +193,7 @@ def sleep_until(timestamp: int):
 
 def main():
     if len(sys.argv) != 2:
-        print("syntax: main.py [DB PATH]")
+        print("syntax: github_downloader.py [DB PATH]")
         return
     db_path = sys.argv[1]
     db.DB_PATH = db_path
