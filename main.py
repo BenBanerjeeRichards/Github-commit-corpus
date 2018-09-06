@@ -141,7 +141,6 @@ def get_and_insert_commits(repo_id, sha=None) -> Optional[str]:
 
 
 def allow_request(num_reqs=1):
-
     try:
         CHECK_RATE_LOCK.acquire()
         return _do_allow_request(num_reqs)
@@ -149,27 +148,23 @@ def allow_request(num_reqs=1):
         CHECK_RATE_LOCK.release()
 
 
-def _do_allow_request(num_reqs, check=False):
+def _do_allow_request(num_reqs):
     global RATE
     global NUM_REQ_THIS_PERIOD
 
     if not RATE or RATE["reset"] <= time.time():
         RATE = github.rate_limit().data["resources"]["core"]
 
-    if not NUM_REQ_THIS_PERIOD:
-        resets_at = datetime.datetime.fromtimestamp(RATE["reset"])
-        period_start = datetime.datetime(resets_at.year, resets_at.month, resets_at.day, resets_at.hour - 1,
-                                         resets_at.minute, resets_at.second)
+    if not _rates_remaining(num_reqs):
+        # If we think there are not rates remaining then just check first
+        RATE = github.rate_limit().data["resources"]["core"]
+        return _rates_remaining(num_reqs)
 
-        NUM_REQ_THIS_PERIOD = db.num_requests_between(period_start.__str__(), resets_at.__str__())
+    return True
 
-    if NUM_REQ_THIS_PERIOD + num_reqs > RATE_LIMIT:
-        if not check:
-            RATE = github.rate_limit().data["resources"]["core"]
-            return _do_allow_request(num_reqs, True)
-    else:
-        NUM_REQ_THIS_PERIOD += num_reqs
-        return True
+
+def _rates_remaining(num_reqs: int):
+    return RATE["remaining"] <= 0 or RATE["remaining"] + num_reqs > RATE["limit"]
 
 
 def sleep_until_rate_reset():
@@ -194,7 +189,8 @@ def sleep_until(timestamp: int):
             sleep_for = 8
 
         logging.info(
-            "Sleeping for {} seconds, now = {}, timestamp = {}, diff = {}".format(sleep_for, now, timestamp, timestamp - now))
+            "Sleeping for {} seconds, now = {}, timestamp = {}, diff = {}".format(sleep_for, now, timestamp,
+                                                                                  timestamp - now))
 
         time.sleep(sleep_for)
         now = time.time()
