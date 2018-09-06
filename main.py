@@ -5,7 +5,6 @@ import logging
 from multiprocessing import Process, Lock
 from sys import stdout
 import time
-import datetime
 import sys
 
 log_format = logging.Formatter('%(asctime)s [%(process)d] %(message)s')
@@ -22,9 +21,6 @@ PROGRESS_FILE = "progress.txt"
 NEXT_REPO_LOCK = Lock()
 CHECK_RATE_LOCK = Lock()
 RATE = None
-NUM_REQ_THIS_PERIOD = None
-# GH rate is 5000 / hour, add a little leeway
-RATE_LIMIT = 4998
 PROC_CRASH_WAIT_SEC = 10
 MAX_GET_REPO_ID = 50
 
@@ -150,7 +146,6 @@ def allow_request(num_reqs=1):
 
 def _do_allow_request(num_reqs):
     global RATE
-    global NUM_REQ_THIS_PERIOD
 
     if not RATE or RATE["reset"] <= time.time():
         RATE = github.rate_limit().data["resources"]["core"]
@@ -164,7 +159,7 @@ def _do_allow_request(num_reqs):
 
 
 def _rates_remaining(num_reqs: int):
-    return RATE["remaining"] <= 0 or RATE["remaining"] + num_reqs > RATE["limit"]
+    return RATE["remaining"] - num_reqs >= 0
 
 
 def sleep_until_rate_reset():
